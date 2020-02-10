@@ -9,24 +9,31 @@ import { projectInstall } from 'pkg-install';
 const access = promisify(fs.access);
 const copy = promisify(ncp);
 
+const sanitizedType = {
+    'Class': 'class',
+    'Class-with-redux': 'classWithRedux',
+    'Functional': 'functional',
+    'Functional-with-hooks': 'functionalWithHooks',
+    'Functional-with-redux': 'functionalWithRedux',
+};
+
 async function copyTemplateFiles(options) {
     const targetDirectory = getTargetDirectory(options);
-    const type = options.type.toLowerCase();
+    const type = sanitizedType[options.type];
 
-    console.log('target', targetDirectory);
     return copy(options.templateDirectory, targetDirectory, {
         clobber: false,
         filter: path => {
                 if(!options.tests && !options.styles) {
-                    return !(path.indexOf('tests') > -1) && !(path.indexOf(`${type}Styles.css`) > -1)
+                    return !(path.includes('tests')) && !(path.includes(`${type}Styles.css`))
                 }
 
                 if(!options.tests) {
-                    return !(path.indexOf('tests') > -1)
+                    return !(path.includes('tests'))
                 }
 
                 if(!options.styles) {
-                    return !(path.indexOf(`${type}Styles.css`) > -1)
+                    return !(path.includes(`${type}Styles.css`))
                 }
                 
                 return path;
@@ -35,39 +42,53 @@ async function copyTemplateFiles(options) {
 }
 
 async function renameTemplateFiles(options) {
+    // Helpers
+    let f, fileName = '', originalPath = '', newPath = '', file = '', extension = '';
+    // Sanitize the type of component we will be looking for
+    const type = sanitizedType[options.type];
+
+    // Get the target directory and the files
     const targetDirectory = getTargetDirectory(options);
     const files = fs.readdirSync(targetDirectory);
 
-    let f, fileName, originalPath, newPath, file, extension;
-    const type = options.type;
+    // Filter them so we only get the ones we created
+    const filteredFiles = files.filter((current) => {
+        return current.includes(type) || current.includes('tests');
+    })
 
-    for (f = 0; f < files.length; f += 1) {
-        fileName = files[f];
+    // Loop and rename the files
+    for (f = 0; f < filteredFiles.length; f += 1) {
+        fileName = filteredFiles[f];
         extension = fileName.split('.')[1];
         originalPath = `${targetDirectory}/${fileName}`;
         file = fs.statSync(originalPath);
 
-        if(file.isDirectory()) {
-            newPath = `${targetDirectory}/${options.name}.test.js`; 
+        if(file.isDirectory() && fileName === 'tests') {
+            newPath = `${targetDirectory}/tests/${options.name}.test.js`; 
             fs.renameSync(`${originalPath}/${type}.test.js`, newPath);
         } else if(extension === 'css' || extension === 'scss') {
             newPath = `${targetDirectory}/${options.name}Styles.${extension}`;
             fs.renameSync(originalPath, newPath);
-        } else {
+        } else if(extension === 'js') {
             newPath = `${targetDirectory}/${options.name}.${extension}`;
             fs.renameSync(originalPath, newPath);
         }
-
-        const foo = fs.readFileSync(newPath).toString();
-        // replace all foo's we can find on the files
-        let newFoo = foo.replace(new RegExp('Foo(?![\w\d])', 'g'), options.name);
-        // write on them
-        fs.writeFileSync(newPath, newFoo)
+        
+        await renameWordsInFiles(newPath, options.name);
     }
 }
 
+async function renameWordsInFiles(newPath, name) {
+    if(!newPath) return null; // FIIIIXXXXEEEED -- Check this i might not need this
+
+    let readFile = fs.readFileSync(newPath).toString();
+    let newFile = readFile.replace(new RegExp('Foo(?![\w\d])', 'g'), name);
+
+    fs.writeFileSync(newPath, newFile)
+}
+
 function getTargetDirectory(options) {
-    let targetDirectory;
+    let targetDirectory = '';
 
     if(options.folder && options.target) {
         targetDirectory = `${options.targetDirectory}/${options.target}/${options.name}` 
